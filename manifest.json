@@ -3,7 +3,7 @@
   "name": "YouTube Sub Translator",
   "version": "0.1.0",
   "description": "OCR-based subtitle translator overlay for YouTube reaction videos",
-  "permissions": [],
+  "permissions": ["offscreen"],
   "background": {
     "service_worker": "background.js"
   },
@@ -13,12 +13,6 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["tesseract-worker.min.js"],
-      "matches": ["*://*.youtube.com/*"]
     }
   ]
 }

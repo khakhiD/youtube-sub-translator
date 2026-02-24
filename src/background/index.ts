@@ -1,20 +1,73 @@
 import { CONFIG } from '../shared/config';
+import { MSG } from '../shared/messages';
+import type { OcrRequestMessage, OcrResultMessage } from '../shared/messages';
 
 /**
  * Background Service Worker (MV3).
- * 현재는 최소 skeleton - 확장 설치/활성화 로그만 처리.
  *
- * TODO: Step 2+ 에서 popup ↔ content script 메시지 라우팅 추가
- * NOTE: MV3에서 service worker는 비활성 시 종료됨 (persistent: false)
- *       상태는 chrome.storage에 저장해야 함
+ * 역할:
+ * - Offscreen document 생성/관리
+ * - Content script ↔ Offscreen 간 OCR 메시지 중계
+ *
+ * NOTE: MV3에서 service worker는 비활성 시 종료됨.
+ *       offscreen document도 함께 종료되므로 필요 시 재생성.
  */
+
+let offscreenCreated = false;
+
+/** Offscreen document 생성 (OCR worker 실행용) */
+async function ensureOffscreen(): Promise<void> {
+  if (offscreenCreated) return;
+
+  // 이미 존재하는지 확인 (service worker 재시작 대비)
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+  });
+
+  if (contexts.length > 0) {
+    offscreenCreated = true;
+    return;
+  }
+
+  await chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    // WORKERS: offscreen에서 Web Worker 사용을 위한 reason
+    reasons: [chrome.offscreen.Reason.WORKERS],
+    justification: 'Tesseract.js OCR worker requires blob: URL worker creation blocked by YouTube CSP',
+  });
+
+  offscreenCreated = true;
+  console.log(CONFIG.logPrefix, 'Offscreen document created for OCR');
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log(CONFIG.logPrefix, 'Extension installed');
 });
 
-// TODO: 메시지 핸들러 추가 예정
-chrome.runtime.onMessage.addListener((_message, _sender, _sendResponse) => {
-  // Step 2+ 에서 구현
+// Content script → Background → Offscreen 메시지 중계
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === MSG.OCR_REQUEST) {
+    handleOcrRequest(message as OcrRequestMessage, sendResponse);
+    return true; // async sendResponse
+  }
   return false;
 });
+
+async function handleOcrRequest(
+  message: OcrRequestMessage,
+  sendResponse: (response: OcrResultMessage) => void,
+): Promise<void> {
+  try {
+    await ensureOffscreen();
+
+    // Offscreen document에 OCR 요청 전달
+    const response = await chrome.runtime.sendMessage(message);
+    sendResponse(response);
+  } catch (err) {
+    console.error(CONFIG.logPrefix, 'OCR relay failed:', err);
+    sendResponse({
+      type: MSG.OCR_RESULT,
+      payload: { text: '', error: String(err) },
+    });
+  }
+}

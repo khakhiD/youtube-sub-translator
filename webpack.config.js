@@ -6,6 +6,7 @@ module.exports = {
   entry: {
     content: './src/content/index.ts',
     background: './src/background/index.ts',
+    offscreen: './src/offscreen/offscreen.ts',
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -36,8 +37,7 @@ module.exports = {
       patterns: [
         { from: 'manifest.json', to: 'manifest.json' },
         { from: 'public/icons', to: 'icons', noErrorOnMissing: true },
-        // tesseract.js worker를 dist에 복사 (content script에서 web_accessible_resources로 접근)
-        { from: 'node_modules/tesseract.js/dist/worker.min.js', to: 'tesseract-worker.min.js' },
+        { from: 'src/offscreen/offscreen.html', to: 'offscreen.html' },
       ],
     }),
   ],
