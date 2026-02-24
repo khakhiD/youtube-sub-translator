@@ -34,7 +34,10 @@ class SubtitleTranslatorApp {
     // 유튜브는 SPA이므로 비디오 플레이어가 즉시 있지 않을 수 있음
     await this.waitForVideoPlayer();
 
-    this.overlay.init(() => this.handleSelectRoi());
+    this.overlay.init({
+      onSelectRoi: () => this.handleSelectRoi(),
+      onClearRoi: () => this.handleClearRoi(),
+    });
     this.state.isActive = true;
 
     console.log(CONFIG.logPrefix, 'App initialized successfully');
@@ -43,17 +46,33 @@ class SubtitleTranslatorApp {
   /** ROI 선택 버튼 클릭 핸들러 */
   private handleSelectRoi(): void {
     console.log(CONFIG.logPrefix, 'Entering ROI selection mode...');
-    this.roiSelector.enterSelectionMode((roi: Rect) => {
-      this.state.roi = roi;
-      this.overlay.setRoiSelected(true);
-      this.overlay.update({
-        originalText: '',
-        translatedText: `[ROI 선택됨] ${roi.width.toFixed(0)}x${roi.height.toFixed(0)} @ (${roi.x.toFixed(0)}, ${roi.y.toFixed(0)})`,
-        timestamp: Date.now(),
-      });
-      console.log(CONFIG.logPrefix, 'ROI saved to state:', roi);
-      // TODO: Step 3에서 이 ROI로 캡처 파이프라인 시작
-    });
+    this.roiSelector.enterSelectionMode(
+      (roi: Rect) => {
+        this.state.roi = roi;
+        this.overlay.setRoiSelected(true);
+        this.overlay.update({
+          originalText: '',
+          translatedText: `[ROI 선택됨] ${roi.width.toFixed(0)}x${roi.height.toFixed(0)} @ (${roi.x.toFixed(0)}, ${roi.y.toFixed(0)})`,
+          timestamp: Date.now(),
+        });
+        console.log(CONFIG.logPrefix, 'ROI saved to state:', roi);
+        // TODO: Step 3에서 이 ROI로 캡처 파이프라인 시작
+      },
+      () => {
+        // 선택 취소 시 - 기존 ROI 유지
+        console.log(CONFIG.logPrefix, 'ROI selection cancelled');
+      },
+    );
+  }
+
+  /** ROI 초기화 버튼 클릭 핸들러 */
+  private handleClearRoi(): void {
+    this.state.roi = null;
+    this.roiSelector.clearExistingRoi();
+    this.overlay.setRoiSelected(false);
+    this.overlay.update(null);
+    console.log(CONFIG.logPrefix, 'ROI cleared');
+    // TODO: Step 3에서 캡처 파이프라인 중지
   }
 
   /** 비디오 플레이어 DOM이 나타날 때까지 대기 */

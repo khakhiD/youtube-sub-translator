@@ -23,14 +23,15 @@ export class RoiSelector implements Disposable {
   private startY = 0;
   private onRoiSelected: RoiCallback | null = null;
 
+  private onCancel: (() => void) | null = null;
+
   // 바운드 핸들러 (removeEventListener를 위해 참조 보관)
   private boundMouseDown = this.handleMouseDown.bind(this);
   private boundMouseMove = this.handleMouseMove.bind(this);
   private boundMouseUp = this.handleMouseUp.bind(this);
-  private boundKeyDown = this.handleKeyDown.bind(this);
 
   /** ROI 선택 모드 진입 */
-  enterSelectionMode(onSelected: RoiCallback): void {
+  enterSelectionMode(onSelected: RoiCallback, onCancel?: () => void): void {
     this.player = document.querySelector('#movie_player');
     if (!this.player) {
       console.warn(CONFIG.logPrefix, 'Cannot enter ROI selection: player not found');
@@ -38,10 +39,11 @@ export class RoiSelector implements Disposable {
     }
 
     this.onRoiSelected = onSelected;
+    this.onCancel = onCancel ?? null;
     this.clearExistingRoi();
     this.createSelectionOverlay();
 
-    console.log(CONFIG.logPrefix, 'ROI selection mode entered (ESC to cancel)');
+    console.log(CONFIG.logPrefix, 'ROI selection mode entered');
   }
 
   /** 현재 ROI 표시 제거 */
@@ -73,30 +75,55 @@ export class RoiSelector implements Disposable {
       z-index: 10000;
     `;
 
-    // 안내 텍스트
-    const hint = document.createElement('div');
-    hint.style.cssText = `
+    // 상단 바: 안내 텍스트 + 취소 버튼
+    const topBar = document.createElement('div');
+    topBar.style.cssText = `
       position: absolute;
       top: 12px;
       left: 50%;
       transform: translateX(-50%);
-      color: #fff;
-      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
       background: rgba(0,0,0,0.7);
       padding: 6px 16px;
       border-radius: 4px;
-      pointer-events: none;
+      font-family: Arial, sans-serif;
+      z-index: 1;
+    `;
+
+    const hint = document.createElement('span');
+    hint.style.cssText = `color: #fff; font-size: 14px; pointer-events: none;`;
+    hint.textContent = '자막 영역을 드래그로 선택하세요';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '취소';
+    cancelBtn.style.cssText = `
+      padding: 3px 10px;
+      font-size: 12px;
+      background: rgba(255,255,255,0.15);
+      color: #ff6b6b;
+      border: 1px solid #ff6b6b;
+      border-radius: 3px;
+      cursor: pointer;
       font-family: Arial, sans-serif;
     `;
-    hint.textContent = '자막 영역을 드래그로 선택하세요 (ESC: 취소)';
-    this.selectionOverlay.appendChild(hint);
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      console.log(CONFIG.logPrefix, 'ROI selection cancelled');
+      this.exitSelectionMode();
+      this.onCancel?.();
+    });
+
+    topBar.appendChild(hint);
+    topBar.appendChild(cancelBtn);
+    this.selectionOverlay.appendChild(topBar);
 
     this.player.style.position = 'relative';
     this.player.appendChild(this.selectionOverlay);
 
     // 이벤트 바인딩
     this.selectionOverlay.addEventListener('mousedown', this.boundMouseDown);
-    document.addEventListener('keydown', this.boundKeyDown);
   }
 
   private handleMouseDown(e: MouseEvent): void {
@@ -178,13 +205,6 @@ export class RoiSelector implements Disposable {
     this.onRoiSelected?.(roi);
   }
 
-  private handleKeyDown(e: KeyboardEvent): void {
-    if (e.key === 'Escape') {
-      console.log(CONFIG.logPrefix, 'ROI selection cancelled');
-      this.exitSelectionMode();
-    }
-  }
-
   /** 선택 모드 종료 (오버레이 제거, 이벤트 해제) */
   private exitSelectionMode(): void {
     this.isSelecting = false;
@@ -192,7 +212,6 @@ export class RoiSelector implements Disposable {
     this.selectionOverlay = null;
     document.removeEventListener('mousemove', this.boundMouseMove);
     document.removeEventListener('mouseup', this.boundMouseUp);
-    document.removeEventListener('keydown', this.boundKeyDown);
   }
 
   /** 확정된 ROI를 점선 테두리로 플레이어 위에 표시 */

@@ -14,11 +14,14 @@ export class SubtitleOverlay implements Disposable {
   private shadowRoot: ShadowRoot | null = null;
   private textEl: HTMLDivElement | null = null;
   private selectRoiBtn: HTMLButtonElement | null = null;
+  private clearRoiBtn: HTMLButtonElement | null = null;
   private onSelectRoi: (() => void) | null = null;
+  private onClearRoi: (() => void) | null = null;
 
   /** 오버레이 DOM을 비디오 플레이어 위에 생성 */
-  init(onSelectRoi?: () => void): void {
-    this.onSelectRoi = onSelectRoi ?? null;
+  init(callbacks?: { onSelectRoi?: () => void; onClearRoi?: () => void }): void {
+    this.onSelectRoi = callbacks?.onSelectRoi ?? null;
+    this.onClearRoi = callbacks?.onClearRoi ?? null;
     // 중복 생성 방지
     if (document.getElementById(OVERLAY_ID)) {
       console.warn(CONFIG.logPrefix, 'Overlay already exists');
@@ -109,7 +112,25 @@ export class SubtitleOverlay implements Disposable {
       this.onSelectRoi?.();
     });
 
+    this.clearRoiBtn = document.createElement('button');
+    this.clearRoiBtn.textContent = 'ROI 초기화';
+    this.clearRoiBtn.style.cssText = `
+      padding: 6px 12px;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #ff6b6b;
+      border: 1px solid #ff6b6b;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      display: none;
+    `;
+    this.clearRoiBtn.addEventListener('click', () => {
+      this.onClearRoi?.();
+    });
+
     this.controlBar.appendChild(this.selectRoiBtn);
+    this.controlBar.appendChild(this.clearRoiBtn);
     player.appendChild(this.controlBar);
 
     console.log(CONFIG.logPrefix, 'Overlay initialized');
@@ -138,6 +159,9 @@ export class SubtitleOverlay implements Disposable {
     if (this.selectRoiBtn) {
       this.selectRoiBtn.textContent = selected ? 'ROI 재선택' : 'ROI 선택';
     }
+    if (this.clearRoiBtn) {
+      this.clearRoiBtn.style.display = selected ? 'block' : 'none';
+    }
   }
 
   dispose(): void {
@@ -148,6 +172,7 @@ export class SubtitleOverlay implements Disposable {
     this.shadowRoot = null;
     this.textEl = null;
     this.selectRoiBtn = null;
+    this.clearRoiBtn = null;
     console.log(CONFIG.logPrefix, 'Overlay disposed');
   }
 
