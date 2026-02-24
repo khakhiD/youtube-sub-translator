@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 300px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-size: 13px;
+  }
+  .header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  .header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .header p {
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+  }
+  .section {
+    padding: 12px 16px;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  .section:last-child {
+    border-bottom: none;
+  }
+  /* 토글 행 — label로 감싸서 어디를 클릭해도 토글 */
+  .toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    cursor: pointer;
+  }
+  .toggle-row span {
+    pointer-events: none;
+  }
+  /* 토글 스위치 */
+  .switch {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+    pointer-events: none;
+  }
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .track {
+    position: absolute;
+    inset: 0;
+    background: #444;
+    border-radius: 11px;
+    transition: background 0.2s;
+  }
+  .track::before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    bottom: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .switch input:checked + .track {
+    background: #00c471;
+  }
+  .switch input:checked + .track::before {
+    transform: translateX(18px);
+  }
+  /* 슬라이더 */
+  .range-row {
+    padding: 8px 0 4px;
+  }
+  .range-row .range-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .range-row .range-value {
+    color: #00c471;
+    font-weight: 600;
+    min-width: 40px;
+    text-align: right;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    background: #00c471;
+    border-radius: 50%;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>YouTube Sub Translator</h1>
+    <p>OCR 기반 자막 번역</p>
+  </div>
+
+  <div class="section">
+    <label class="toggle-row" for="translateEnabled">
+      <span>번역 활성화</span>
+      <div class="switch">
+        <input type="checkbox" id="translateEnabled">
+        <span class="track"></span>
+      </div>
+    </label>
+    <label class="toggle-row" for="showOriginal">
+      <span>원문 함께 표시</span>
+      <div class="switch">
+        <input type="checkbox" id="showOriginal">
+        <span class="track"></span>
+      </div>
+    </label>
+    <label class="toggle-row" for="autoHideControls">
+      <span>컨트롤 자동 숨김</span>
+      <div class="switch">
+        <input type="checkbox" id="autoHideControls">
+        <span class="track"></span>
+      </div>
+    </label>
+  </div>
+
+  <div class="section">
+    <div class="range-row">
+      <div class="range-label">
+        <span>글자 크기</span>
+        <span class="range-value" id="fontSizeValue">20px</span>
+      </div>
+      <input type="range" id="fontSize" min="14" max="32" step="1" value="20">
+    </div>
+    <div class="range-row">
+      <div class="range-label">
+        <span>배경 투명도</span>
+        <span class="range-value" id="bgOpacityValue">50%</span>
+      </div>
+      <input type="range" id="bgOpacity" min="0" max="100" step="5" value="50">
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

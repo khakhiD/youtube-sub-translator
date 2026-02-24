@@ -30,8 +30,16 @@ export class RoiSelector implements Disposable {
   private boundMouseMove = this.handleMouseMove.bind(this);
   private boundMouseUp = this.handleMouseUp.bind(this);
 
+  /** 현재 선택 모드 중인지 */
+  isInSelectionMode(): boolean {
+    return this.selectionOverlay !== null;
+  }
+
   /** ROI 선택 모드 진입 */
   enterSelectionMode(onSelected: RoiCallback, onCancel?: () => void): void {
+    // 이미 선택 모드면 무시
+    if (this.isInSelectionMode()) return;
+
     this.player = document.querySelector('#movie_player');
     if (!this.player) {
       console.warn(CONFIG.logPrefix, 'Cannot enter ROI selection: player not found');

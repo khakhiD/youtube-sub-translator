@@ -1,4 +1,6 @@
 import { CONFIG } from '../shared/config';
+import { loadSettings } from '../shared/settings';
+import type { Settings } from '../shared/settings';
 import type { AppState, Rect } from '../shared/types';
 import { SubtitleOverlay } from './overlay';
 import { RoiSelector } from './roi-selector';
@@ -11,6 +13,7 @@ import '../styles/content.css';
 /**
  * Content Script 진입점.
  * 파이프라인: 캡처 → OCR → 중복제거 → 번역 → 오버레이
+ * 설정은 chrome.storage에서 로드하고 변경 시 실시간 반영.
  */
 
 class SubtitleTranslatorApp {
@@ -19,6 +22,7 @@ class SubtitleTranslatorApp {
   private capture: FrameCapture;
   private ocr: OcrEngine;
   private state: AppState;
+  private settings!: Settings;
 
   constructor() {
     this.overlay = new SubtitleOverlay();
@@ -32,45 +36,69 @@ class SubtitleTranslatorApp {
     };
   }
 
-  /** 앱 시작 - 유튜브 비디오 플레이어가 로드될 때까지 대기 후 초기화 */
   async start(): Promise<void> {
     console.log(CONFIG.logPrefix, 'Extension loaded on YouTube');
 
-    // 유튜브는 SPA이므로 비디오 플레이어가 즉시 있지 않을 수 있음
+    // 설정 로드
+    this.settings = await loadSettings();
+
     await this.waitForVideoPlayer();
 
     this.overlay.init({
       onSelectRoi: () => this.handleSelectRoi(),
       onClearRoi: () => this.handleClearRoi(),
     });
+    this.overlay.applySettings(this.settings);
     this.state.isActive = true;
+
+    // 설정 변경 감지 (popup에서 변경 시 실시간 반영)
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.settings) {
+        const newSettings = changes.settings.newValue as Settings;
+        const oldSettings = changes.settings.oldValue as Settings | undefined;
+        this.settings = newSettings;
+        this.overlay.applySettings(this.settings);
+
+        // 캡처 간격이 변경되면 캡처 재시작
+        if (
+          this.state.roi &&
+          this.capture.isRunning() &&
+          oldSettings?.captureIntervalMs !== newSettings.captureIntervalMs
+        ) {
+          this.startCapture(this.state.roi);
+        }
+      }
+    });
 
     console.log(CONFIG.logPrefix, 'App initialized successfully');
   }
 
-  /** ROI 선택 버튼 클릭 핸들러 */
   private handleSelectRoi(): void {
+    if (this.roiSelector.isInSelectionMode()) return;
+
     console.log(CONFIG.logPrefix, 'Entering ROI selection mode...');
+    this.overlay.setSelecting(true);
+
     this.roiSelector.enterSelectionMode(
       (roi: Rect) => {
+        this.overlay.setSelecting(false);
         this.state.roi = roi;
         this.overlay.setRoiSelected(true);
         this.overlay.update({
           originalText: '',
-          translatedText: `[ROI 선택됨] ${roi.width.toFixed(0)}x${roi.height.toFixed(0)} @ (${roi.x.toFixed(0)}, ${roi.y.toFixed(0)})`,
+          translatedText: `[ROI 선택됨] ${roi.width.toFixed(0)}x${roi.height.toFixed(0)}`,
           timestamp: Date.now(),
         });
         console.log(CONFIG.logPrefix, 'ROI saved to state:', roi);
         this.startCapture(roi);
       },
       () => {
-        // 선택 취소 시 - 기존 ROI 유지
+        this.overlay.setSelecting(false);
         console.log(CONFIG.logPrefix, 'ROI selection cancelled');
       },
     );
   }
 
-  /** ROI 초기화 버튼 클릭 핸들러 */
   private handleClearRoi(): void {
     this.capture.stop();
     this.state.roi = null;
@@ -91,29 +119,31 @@ class SubtitleTranslatorApp {
 
     this.capture.start(roi, (imageData: ImageData) => {
       this.ocr.recognize(imageData, async (text: string) => {
-        // 중복 제거: 이전 자막과 동일하면 스킵
         if (!isNewSubtitle(text)) return;
 
-        // 번역 (en → ko)
-        const translated = await translate(text);
-
-        this.overlay.update({
-          originalText: text,
-          translatedText: translated,
-          timestamp: Date.now(),
-        });
+        if (this.settings.translateEnabled) {
+          const translated = await translate(text);
+          this.overlay.update({
+            originalText: text,
+            translatedText: translated,
+            timestamp: Date.now(),
+          });
+        } else {
+          // 번역 비활성화 시 원문만 표시
+          this.overlay.update({
+            originalText: '',
+            translatedText: text,
+            timestamp: Date.now(),
+          });
+        }
       });
-    });
+    }, this.settings.captureIntervalMs);
   }
 
-  /** 비디오 플레이어 DOM이 나타날 때까지 대기 */
   private waitForVideoPlayer(): Promise<void> {
     return new Promise((resolve) => {
       const player = document.querySelector('#movie_player');
-      if (player) {
-        resolve();
-        return;
-      }
+      if (player) { resolve(); return; }
 
       const observer = new MutationObserver((_mutations, obs) => {
         if (document.querySelector('#movie_player')) {
@@ -121,22 +151,12 @@ class SubtitleTranslatorApp {
           resolve();
         }
       });
-
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-      });
-
-      // 안전장치: 10초 후 타임아웃
-      setTimeout(() => {
-        observer.disconnect();
-        resolve();
-      }, 10_000);
+      observer.observe(document.body, { childList: true, subtree: true });
+      setTimeout(() => { observer.disconnect(); resolve(); }, 10_000);
     });
   }
 }
 
-// 즉시 실행
 const app = new SubtitleTranslatorApp();
 app.start().catch((err) => {
   console.error(CONFIG.logPrefix, 'Failed to start:', err);

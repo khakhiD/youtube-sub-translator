@@ -31,8 +31,9 @@ export class FrameCapture implements Disposable {
    * 주기적 캡처 시작.
    * @param roi - 캡처할 영역 (비디오 플레이어 기준 좌표)
    * @param onCapture - 캡처된 ImageData를 받는 콜백
+   * @param intervalMs - 캡처 간격 (ms). 기본값 CONFIG.captureIntervalMs
    */
-  start(roi: Rect, onCapture: CaptureCallback): void {
+  start(roi: Rect, onCapture: CaptureCallback, intervalMs?: number): void {
     this.stop();
 
     this.video = document.querySelector('video');
@@ -41,17 +42,15 @@ export class FrameCapture implements Disposable {
       return;
     }
 
-    // canvas 크기를 ROI에 맞춤
-    this.canvas.width = roi.width;
-    this.canvas.height = roi.height;
+    const interval = intervalMs ?? CONFIG.captureIntervalMs;
 
-    console.log(CONFIG.logPrefix, `Capture started (${CONFIG.captureIntervalMs}ms interval)`);
+    console.log(CONFIG.logPrefix, `Capture started (${interval}ms interval)`);
 
     // 즉시 첫 캡처 + 주기 반복
     this.captureFrame(roi, onCapture);
     this.timerId = window.setInterval(() => {
       this.captureFrame(roi, onCapture);
-    }, CONFIG.captureIntervalMs);
+    }, interval);
   }
 
   /** 캡처 중지 */

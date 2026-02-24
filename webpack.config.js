@@ -7,6 +7,7 @@ module.exports = {
     content: './src/content/index.ts',
     background: './src/background/index.ts',
     offscreen: './src/offscreen/offscreen.ts',
+    popup: './src/popup/popup.ts',
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -38,6 +39,7 @@ module.exports = {
         { from: 'manifest.json', to: 'manifest.json' },
         { from: 'public/icons', to: 'icons', noErrorOnMissing: true },
         { from: 'src/offscreen/offscreen.html', to: 'offscreen.html' },
+        { from: 'src/popup/popup.html', to: 'popup.html' },
         // Tesseract.js worker script (offscreen document에서 직접 로드)
         {
           from: 'node_modules/tesseract.js/dist/worker.min.js',

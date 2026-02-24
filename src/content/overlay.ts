@@ -1,30 +1,35 @@
 import { CONFIG } from '../shared/config';
 import type { SubtitleEntry, Disposable } from '../shared/types';
+import type { Settings } from '../shared/settings';
 
 const OVERLAY_ID = 'yt-sub-translator-overlay';
 const CONTROL_ID = 'yt-sub-translator-control';
 
 /**
  * 번역 자막을 유튜브 비디오 위에 오버레이로 표시하는 모듈.
- * Shadow DOM으로 유튜브 스타일과 격리. 드래그로 위치 이동 가능.
+ * Shadow DOM으로 스타일 격리. 드래그로 위치 이동 가능.
+ * Settings 변경에 실시간 반응.
  */
 export class SubtitleOverlay implements Disposable {
   private container: HTMLDivElement | null = null;
   private controlBar: HTMLDivElement | null = null;
   private shadowRoot: ShadowRoot | null = null;
-  private textEl: HTMLDivElement | null = null;
+  private originalEl: HTMLDivElement | null = null;
+  private translatedEl: HTMLDivElement | null = null;
   private selectRoiBtn: HTMLButtonElement | null = null;
   private clearRoiBtn: HTMLButtonElement | null = null;
   private onSelectRoi: (() => void) | null = null;
   private onClearRoi: (() => void) | null = null;
+  private player: HTMLElement | null = null;
 
   // 드래그 상태
   private isDragging = false;
   private dragOffsetX = 0;
   private dragOffsetY = 0;
-  private posX = 0; // 플레이어 중앙 기준 오프셋
-  private posY = 0;
-  private player: HTMLElement | null = null;
+  private positioned = false; // 사용자가 드래그로 위치를 잡았는지
+
+  // 자동 숨김
+  private hideTimer: number | null = null;
 
   private boundDragMove = this.handleDragMove.bind(this);
   private boundDragEnd = this.handleDragEnd.bind(this);
@@ -34,21 +39,14 @@ export class SubtitleOverlay implements Disposable {
     this.onSelectRoi = callbacks?.onSelectRoi ?? null;
     this.onClearRoi = callbacks?.onClearRoi ?? null;
 
-    if (document.getElementById(OVERLAY_ID)) {
-      console.warn(CONFIG.logPrefix, 'Overlay already exists');
-      return;
-    }
+    if (document.getElementById(OVERLAY_ID)) return;
 
-    this.player = this.findVideoPlayer();
-    if (!this.player) {
-      console.warn(CONFIG.logPrefix, 'Video player not found, retrying...');
-      return;
-    }
+    this.player = document.querySelector('#movie_player');
+    if (!this.player) return;
 
-    // 컨테이너 (Shadow DOM)
+    // --- 자막 오버레이 (Shadow DOM) ---
     this.container = document.createElement('div');
     this.container.id = OVERLAY_ID;
-
     this.shadowRoot = this.container.attachShadow({ mode: 'open' });
 
     const style = document.createElement('style');
@@ -61,9 +59,30 @@ export class SubtitleOverlay implements Disposable {
         z-index: 9999;
         pointer-events: none;
       }
-      .subtitle-text {
-        font-size: ${CONFIG.overlay.fontSize}px;
+      .subtitle-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        pointer-events: auto;
+        cursor: grab;
+        user-select: none;
+        padding: 6px 14px;
+        border-radius: 6px;
         max-width: ${CONFIG.overlay.maxWidth}px;
+      }
+      .subtitle-box:active { cursor: grabbing; }
+      .original {
+        font-size: 13px;
+        color: #ccc;
+        text-align: center;
+        line-height: 1.3;
+        white-space: pre-wrap;
+        word-break: keep-all;
+      }
+      .original:empty { display: none; }
+      .translated {
+        font-size: 20px;
         color: #fff;
         text-align: center;
         text-shadow:
@@ -73,36 +92,32 @@ export class SubtitleOverlay implements Disposable {
            1px  1px 0 #000;
         font-family: 'Arial', sans-serif;
         line-height: 1.4;
-        padding: 4px 12px;
-        background: rgba(0, 0, 0, 0.5);
-        border-radius: 4px;
         white-space: pre-wrap;
         word-break: keep-all;
-        pointer-events: auto;
-        cursor: grab;
-        user-select: none;
       }
-      .subtitle-text:active {
-        cursor: grabbing;
-      }
-      .subtitle-text:empty {
-        display: none;
-      }
+      .translated:empty { display: none; }
     `;
 
-    this.textEl = document.createElement('div');
-    this.textEl.className = 'subtitle-text';
+    const box = document.createElement('div');
+    box.className = 'subtitle-box';
 
-    // 드래그 이벤트
-    this.textEl.addEventListener('mousedown', (e) => this.handleDragStart(e));
+    this.originalEl = document.createElement('div');
+    this.originalEl.className = 'original';
+
+    this.translatedEl = document.createElement('div');
+    this.translatedEl.className = 'translated';
+
+    box.appendChild(this.originalEl);
+    box.appendChild(this.translatedEl);
+    box.addEventListener('mousedown', (e) => this.handleDragStart(e));
 
     this.shadowRoot.appendChild(style);
-    this.shadowRoot.appendChild(this.textEl);
+    this.shadowRoot.appendChild(box);
 
     this.player.style.position = 'relative';
     this.player.appendChild(this.container);
 
-    // 컨트롤 바
+    // --- 컨트롤 바 ---
     this.controlBar = document.createElement('div');
     this.controlBar.id = CONTROL_ID;
     this.controlBar.style.cssText = `
@@ -112,35 +127,14 @@ export class SubtitleOverlay implements Disposable {
       z-index: 10001;
       display: flex;
       gap: 6px;
+      transition: opacity 0.3s;
     `;
 
-    this.selectRoiBtn = document.createElement('button');
-    this.selectRoiBtn.textContent = 'ROI 선택';
-    this.selectRoiBtn.style.cssText = `
-      padding: 6px 12px;
-      font-size: 12px;
-      background: rgba(0, 0, 0, 0.7);
-      color: #00ff88;
-      border: 1px solid #00ff88;
-      border-radius: 4px;
-      cursor: pointer;
-      font-family: Arial, sans-serif;
-    `;
+    this.selectRoiBtn = this.createBtn('ROI 선택', '#00ff88');
     this.selectRoiBtn.addEventListener('click', () => this.onSelectRoi?.());
 
-    this.clearRoiBtn = document.createElement('button');
-    this.clearRoiBtn.textContent = 'ROI 초기화';
-    this.clearRoiBtn.style.cssText = `
-      padding: 6px 12px;
-      font-size: 12px;
-      background: rgba(0, 0, 0, 0.7);
-      color: #ff6b6b;
-      border: 1px solid #ff6b6b;
-      border-radius: 4px;
-      cursor: pointer;
-      font-family: Arial, sans-serif;
-      display: none;
-    `;
+    this.clearRoiBtn = this.createBtn('ROI 초기화', '#ff6b6b');
+    this.clearRoiBtn.style.display = 'none';
     this.clearRoiBtn.addEventListener('click', () => this.onClearRoi?.());
 
     this.controlBar.appendChild(this.selectRoiBtn);
@@ -152,12 +146,53 @@ export class SubtitleOverlay implements Disposable {
 
   /** 자막 텍스트 업데이트 */
   update(subtitle: SubtitleEntry | null): void {
-    if (!this.textEl) return;
+    if (!this.translatedEl || !this.originalEl) return;
 
     if (subtitle && subtitle.translatedText.trim()) {
-      this.textEl.textContent = subtitle.translatedText;
+      this.originalEl.textContent = subtitle.originalText || '';
+      this.translatedEl.textContent = subtitle.translatedText;
     } else {
-      this.textEl.textContent = '';
+      this.originalEl.textContent = '';
+      this.translatedEl.textContent = '';
+    }
+  }
+
+  /** 설정 변경 시 오버레이 스타일 즉시 반영 */
+  applySettings(s: Settings): void {
+    if (!this.shadowRoot) return;
+
+    const box = this.shadowRoot.querySelector('.subtitle-box') as HTMLElement;
+    if (box) {
+      box.style.background = `rgba(0, 0, 0, ${s.bgOpacity / 100})`;
+    }
+
+    if (this.translatedEl) {
+      this.translatedEl.style.fontSize = `${s.fontSize}px`;
+    }
+    if (this.originalEl) {
+      this.originalEl.style.display = s.showOriginal ? '' : 'none';
+      this.originalEl.style.fontSize = `${Math.max(s.fontSize - 4, 12)}px`;
+    }
+
+    // 컨트롤 자동 숨김
+    if (this.controlBar && this.player) {
+      if (s.autoHideControls) {
+        this.controlBar.style.opacity = '0';
+        // 플레이어 호버 시 표시
+        this.player.onmouseenter = () => {
+          if (this.controlBar) this.controlBar.style.opacity = '1';
+          if (this.hideTimer) clearTimeout(this.hideTimer);
+        };
+        this.player.onmouseleave = () => {
+          this.hideTimer = window.setTimeout(() => {
+            if (this.controlBar) this.controlBar.style.opacity = '0';
+          }, 1500);
+        };
+      } else {
+        this.controlBar.style.opacity = '1';
+        this.player.onmouseenter = null;
+        this.player.onmouseleave = null;
+      }
     }
   }
 
@@ -176,6 +211,13 @@ export class SubtitleOverlay implements Disposable {
     }
   }
 
+  /** 선택 모드 진입/종료 시 컨트롤 바 활성화 상태 변경 */
+  setSelecting(selecting: boolean): void {
+    if (this.controlBar) {
+      this.controlBar.style.display = selecting ? 'none' : 'flex';
+    }
+  }
+
   dispose(): void {
     document.removeEventListener('mousemove', this.boundDragMove);
     document.removeEventListener('mouseup', this.boundDragEnd);
@@ -184,23 +226,23 @@ export class SubtitleOverlay implements Disposable {
     this.container = null;
     this.controlBar = null;
     this.shadowRoot = null;
-    this.textEl = null;
+    this.originalEl = null;
+    this.translatedEl = null;
     this.selectRoiBtn = null;
     this.clearRoiBtn = null;
-    console.log(CONFIG.logPrefix, 'Overlay disposed');
   }
 
-  // --- 드래그 로직 ---
+  // --- 드래그 ---
 
   private handleDragStart(e: MouseEvent): void {
     if (!this.container) return;
     e.preventDefault();
     e.stopPropagation();
-
     this.isDragging = true;
-    const containerRect = this.container.getBoundingClientRect();
-    this.dragOffsetX = e.clientX - containerRect.left;
-    this.dragOffsetY = e.clientY - containerRect.top;
+
+    const rect = this.container.getBoundingClientRect();
+    this.dragOffsetX = e.clientX - rect.left;
+    this.dragOffsetY = e.clientY - rect.top;
 
     document.addEventListener('mousemove', this.boundDragMove);
     document.addEventListener('mouseup', this.boundDragEnd);
@@ -210,24 +252,34 @@ export class SubtitleOverlay implements Disposable {
     if (!this.isDragging || !this.container || !this.player) return;
     e.preventDefault();
 
-    const playerRect = this.player.getBoundingClientRect();
-    const newLeft = e.clientX - playerRect.left - this.dragOffsetX;
-    const newTop = e.clientY - playerRect.top - this.dragOffsetY;
-
-    // bottom/transform 기반 → top/left 기반으로 전환
+    const pr = this.player.getBoundingClientRect();
     this.container.style.bottom = 'auto';
     this.container.style.transform = 'none';
-    this.container.style.left = `${newLeft}px`;
-    this.container.style.top = `${newTop}px`;
-
-    this.posX = newLeft;
-    this.posY = newTop;
+    this.container.style.left = `${e.clientX - pr.left - this.dragOffsetX}px`;
+    this.container.style.top = `${e.clientY - pr.top - this.dragOffsetY}px`;
+    this.positioned = true;
   }
 
   private handleDragEnd(): void {
     this.isDragging = false;
     document.removeEventListener('mousemove', this.boundDragMove);
     document.removeEventListener('mouseup', this.boundDragEnd);
+  }
+
+  private createBtn(text: string, color: string): HTMLButtonElement {
+    const btn = document.createElement('button');
+    btn.textContent = text;
+    btn.style.cssText = `
+      padding: 6px 12px;
+      font-size: 12px;
+      background: rgba(0,0,0,0.7);
+      color: ${color};
+      border: 1px solid ${color};
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+    `;
+    return btn;
   }
 
   private findVideoPlayer(): HTMLElement | null {
