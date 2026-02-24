@@ -3,27 +3,29 @@ import type { AppState, Rect } from '../shared/types';
 import { SubtitleOverlay } from './overlay';
 import { RoiSelector } from './roi-selector';
 import { FrameCapture } from './capture';
+import { OcrEngine } from './ocr';
 import '../styles/content.css';
 
 /**
  * Content Script 진입점.
  * 각 모듈을 초기화하고 파이프라인을 조율하는 역할.
  *
- * Step 3: 오버레이 + ROI 선택 + 프레임 캡처
- * TODO: Step 4에서 OCR 연동
+ * Step 4: 오버레이 + ROI 선택 + 프레임 캡처 + OCR
+ * TODO: Step 5에서 번역 + 중복 제거 연동
  */
 
 class SubtitleTranslatorApp {
   private overlay: SubtitleOverlay;
   private roiSelector: RoiSelector;
   private capture: FrameCapture;
+  private ocr: OcrEngine;
   private state: AppState;
-  private captureCount = 0;
 
   constructor() {
     this.overlay = new SubtitleOverlay();
     this.roiSelector = new RoiSelector();
     this.capture = new FrameCapture();
+    this.ocr = new OcrEngine();
     this.state = {
       isActive: false,
       roi: null,
@@ -72,7 +74,6 @@ class SubtitleTranslatorApp {
   /** ROI 초기화 버튼 클릭 핸들러 */
   private handleClearRoi(): void {
     this.capture.stop();
-    this.captureCount = 0;
     this.state.roi = null;
     this.roiSelector.clearExistingRoi();
     this.overlay.setRoiSelected(false);
@@ -80,17 +81,22 @@ class SubtitleTranslatorApp {
     console.log(CONFIG.logPrefix, 'ROI cleared, capture stopped');
   }
 
-  /** ROI 기반 주기적 캡처 시작 */
+  /** ROI 기반 주기적 캡처 → OCR 파이프라인 시작 */
   private startCapture(roi: Rect): void {
-    this.captureCount = 0;
+    this.overlay.update({
+      originalText: '',
+      translatedText: '[OCR 초기화 중...]',
+      timestamp: Date.now(),
+    });
+
     this.capture.start(roi, (imageData: ImageData) => {
-      this.captureCount++;
-      // TODO: Step 4에서 imageData를 OCR 모듈로 전달
-      // 확인용: 캡처 횟수와 이미지 크기를 오버레이에 표시
-      this.overlay.update({
-        originalText: '',
-        translatedText: `[캡처 #${this.captureCount}] ${imageData.width}x${imageData.height}px`,
-        timestamp: Date.now(),
+      this.ocr.recognize(imageData, (text: string) => {
+        // TODO: Step 5에서 번역 + 중복 제거 모듈로 전달
+        this.overlay.update({
+          originalText: text,
+          translatedText: text,
+          timestamp: Date.now(),
+        });
       });
     });
   }

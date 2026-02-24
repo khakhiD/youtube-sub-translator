@@ -14,5 +14,11 @@
       "css": ["content.css"],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["tesseract-worker.min.js"],
+      "matches": ["*://*.youtube.com/*"]
+    }
   ]
 }
