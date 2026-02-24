@@ -2,24 +2,28 @@ import { CONFIG } from '../shared/config';
 import type { AppState, Rect } from '../shared/types';
 import { SubtitleOverlay } from './overlay';
 import { RoiSelector } from './roi-selector';
+import { FrameCapture } from './capture';
 import '../styles/content.css';
 
 /**
  * Content Script 진입점.
  * 각 모듈을 초기화하고 파이프라인을 조율하는 역할.
  *
- * Step 2: 오버레이 + ROI 선택 UI
- * TODO: Step 3에서 캡처 파이프라인 연결
+ * Step 3: 오버레이 + ROI 선택 + 프레임 캡처
+ * TODO: Step 4에서 OCR 연동
  */
 
 class SubtitleTranslatorApp {
   private overlay: SubtitleOverlay;
   private roiSelector: RoiSelector;
+  private capture: FrameCapture;
   private state: AppState;
+  private captureCount = 0;
 
   constructor() {
     this.overlay = new SubtitleOverlay();
     this.roiSelector = new RoiSelector();
+    this.capture = new FrameCapture();
     this.state = {
       isActive: false,
       roi: null,
@@ -56,7 +60,7 @@ class SubtitleTranslatorApp {
           timestamp: Date.now(),
         });
         console.log(CONFIG.logPrefix, 'ROI saved to state:', roi);
-        // TODO: Step 3에서 이 ROI로 캡처 파이프라인 시작
+        this.startCapture(roi);
       },
       () => {
         // 선택 취소 시 - 기존 ROI 유지
@@ -67,12 +71,28 @@ class SubtitleTranslatorApp {
 
   /** ROI 초기화 버튼 클릭 핸들러 */
   private handleClearRoi(): void {
+    this.capture.stop();
+    this.captureCount = 0;
     this.state.roi = null;
     this.roiSelector.clearExistingRoi();
     this.overlay.setRoiSelected(false);
     this.overlay.update(null);
-    console.log(CONFIG.logPrefix, 'ROI cleared');
-    // TODO: Step 3에서 캡처 파이프라인 중지
+    console.log(CONFIG.logPrefix, 'ROI cleared, capture stopped');
+  }
+
+  /** ROI 기반 주기적 캡처 시작 */
+  private startCapture(roi: Rect): void {
+    this.captureCount = 0;
+    this.capture.start(roi, (imageData: ImageData) => {
+      this.captureCount++;
+      // TODO: Step 4에서 imageData를 OCR 모듈로 전달
+      // 확인용: 캡처 횟수와 이미지 크기를 오버레이에 표시
+      this.overlay.update({
+        originalText: '',
+        translatedText: `[캡처 #${this.captureCount}] ${imageData.width}x${imageData.height}px`,
+        timestamp: Date.now(),
+      });
+    });
   }
 
   /** 비디오 플레이어 DOM이 나타날 때까지 대기 */
