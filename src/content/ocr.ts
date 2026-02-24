@@ -2,6 +2,7 @@ import { CONFIG } from '../shared/config';
 import { MSG } from '../shared/messages';
 import type { OcrRequestMessage, OcrResultMessage } from '../shared/messages';
 import type { Disposable } from '../shared/types';
+import { preprocessForOcr } from './preprocess';
 
 /** OCR 결과를 전달하는 콜백 */
 export type OcrCallback = (text: string) => void;
@@ -9,12 +10,9 @@ export type OcrCallback = (text: string) => void;
 /**
  * OCR 모듈 - Background → Offscreen 메시징을 통해 tesseract.js 실행.
  *
- * 유튜브 CSP가 content script에서 blob: Worker 생성을 차단하므로,
- * 실제 OCR은 offscreen document에서 수행.
- * 이 모듈은 ImageData → dataURL 변환 + 메시지 송수신만 담당.
+ * 파이프라인: ImageData → 전처리(grayscale/contrast/upscale/padding) → dataURL → 메시지
  *
  * - 이전 OCR이 진행 중이면 새 요청을 스킵 (큐잉 방지)
- * - TODO: 전처리(grayscale, upscale) 확장 포인트
  */
 export class OcrEngine implements Disposable {
   private busy = false;
@@ -28,15 +26,16 @@ export class OcrEngine implements Disposable {
 
   /**
    * ImageData를 OCR 처리하여 텍스트를 추출.
-   * Background → Offscreen으로 메시지를 보내 처리.
+   * 전처리 → Background → Offscreen으로 메시지를 보내 처리.
    */
   async recognize(imageData: ImageData, onResult: OcrCallback): Promise<void> {
     if (this.busy) return;
 
     this.busy = true;
     try {
-      // TODO: 여기에 전처리(grayscale, contrast, upscale) 삽입 가능
-      const dataUrl = this.imageDataToDataUrl(imageData);
+      // 전처리: grayscale → contrast → upscale 2x → padding
+      const processed = preprocessForOcr(imageData, this.canvas, this.ctx);
+      const dataUrl = this.imageDataToDataUrl(processed);
 
       const message: OcrRequestMessage = {
         type: MSG.OCR_REQUEST,

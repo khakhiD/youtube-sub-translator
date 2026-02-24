@@ -1,6 +1,6 @@
 import { CONFIG } from '../shared/config';
 import { MSG } from '../shared/messages';
-import type { OcrRequestMessage, OcrResultMessage } from '../shared/messages';
+import type { OcrRequestMessage, OcrProcessMessage, OcrResultMessage } from '../shared/messages';
 
 /**
  * Background Service Worker (MV3).
@@ -60,8 +60,13 @@ async function handleOcrRequest(
   try {
     await ensureOffscreen();
 
-    // Offscreen document에 OCR 요청 전달
-    const response = await chrome.runtime.sendMessage(message);
+    // OCR_REQUEST → OCR_PROCESS로 변환하여 offscreen에 전달
+    // (sendMessage는 모든 컨텍스트에 전달되므로 다른 메시지 타입 사용)
+    const processMessage: OcrProcessMessage = {
+      type: MSG.OCR_PROCESS,
+      payload: { imageDataUrl: message.payload.imageDataUrl },
+    };
+    const response = await chrome.runtime.sendMessage(processMessage);
     sendResponse(response);
   } catch (err) {
     console.error(CONFIG.logPrefix, 'OCR relay failed:', err);

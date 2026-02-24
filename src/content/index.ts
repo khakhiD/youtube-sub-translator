@@ -4,14 +4,13 @@ import { SubtitleOverlay } from './overlay';
 import { RoiSelector } from './roi-selector';
 import { FrameCapture } from './capture';
 import { OcrEngine } from './ocr';
+import { translate } from './translator';
+import { isNewSubtitle, resetDedup } from './dedup';
 import '../styles/content.css';
 
 /**
  * Content Script 진입점.
- * 각 모듈을 초기화하고 파이프라인을 조율하는 역할.
- *
- * Step 4: 오버레이 + ROI 선택 + 프레임 캡처 + OCR
- * TODO: Step 5에서 번역 + 중복 제거 연동
+ * 파이프라인: 캡처 → OCR → 중복제거 → 번역 → 오버레이
  */
 
 class SubtitleTranslatorApp {
@@ -78,10 +77,11 @@ class SubtitleTranslatorApp {
     this.roiSelector.clearExistingRoi();
     this.overlay.setRoiSelected(false);
     this.overlay.update(null);
+    resetDedup();
     console.log(CONFIG.logPrefix, 'ROI cleared, capture stopped');
   }
 
-  /** ROI 기반 주기적 캡처 → OCR 파이프라인 시작 */
+  /** ROI 기반 주기적 캡처 → OCR → 중복제거 → 번역 → 오버레이 */
   private startCapture(roi: Rect): void {
     this.overlay.update({
       originalText: '',
@@ -90,11 +90,16 @@ class SubtitleTranslatorApp {
     });
 
     this.capture.start(roi, (imageData: ImageData) => {
-      this.ocr.recognize(imageData, (text: string) => {
-        // TODO: Step 5에서 번역 + 중복 제거 모듈로 전달
+      this.ocr.recognize(imageData, async (text: string) => {
+        // 중복 제거: 이전 자막과 동일하면 스킵
+        if (!isNewSubtitle(text)) return;
+
+        // 번역 (en → ko)
+        const translated = await translate(text);
+
         this.overlay.update({
           originalText: text,
-          translatedText: text,
+          translatedText: translated,
           timestamp: Date.now(),
         });
       });

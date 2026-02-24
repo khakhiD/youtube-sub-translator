@@ -72,11 +72,11 @@ export class FrameCapture implements Disposable {
     this.video = null;
   }
 
-  /** 단일 프레임 캡처 */
+  /** 단일 프레임 캡처 (비디오 네이티브 해상도 유지) */
   private captureFrame(roi: Rect, onCapture: CaptureCallback): void {
     if (!this.video || this.video.paused || this.video.ended) return;
 
-    // ROI는 플레이어(DOM) 기준 좌표 → 비디오 실제 해상도로 변환 필요
+    // ROI는 플레이어(DOM) 기준 좌표 → 비디오 실제 해상도로 변환
     const scaleX = this.video.videoWidth / this.video.clientWidth;
     const scaleY = this.video.videoHeight / this.video.clientHeight;
 
@@ -85,18 +85,25 @@ export class FrameCapture implements Disposable {
     const srcW = roi.width * scaleX;
     const srcH = roi.height * scaleY;
 
+    // canvas를 비디오 네이티브 해상도로 설정 (DOM 크기로 축소하지 않음)
+    const nativeW = Math.round(srcW);
+    const nativeH = Math.round(srcH);
+    if (this.canvas.width !== nativeW || this.canvas.height !== nativeH) {
+      this.canvas.width = nativeW;
+      this.canvas.height = nativeH;
+    }
+
     try {
-      // 비디오 → canvas 크롭 복사
+      // 비디오 → canvas: 네이티브 해상도 1:1 복사
       this.ctx.drawImage(
         this.video,
-        srcX, srcY, srcW, srcH,  // source (비디오 내 실제 픽셀 좌표)
-        0, 0, roi.width, roi.height,  // destination (canvas)
+        srcX, srcY, srcW, srcH,
+        0, 0, nativeW, nativeH,
       );
 
-      const imageData = this.ctx.getImageData(0, 0, roi.width, roi.height);
+      const imageData = this.ctx.getImageData(0, 0, nativeW, nativeH);
       onCapture(imageData);
     } catch (err) {
-      // CORS 등으로 tainted canvas가 될 수 있음 (보통 유튜브에서는 발생하지 않음)
       console.error(CONFIG.logPrefix, 'Capture failed:', err);
     }
   }

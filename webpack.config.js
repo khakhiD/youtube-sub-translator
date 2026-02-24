@@ -38,6 +38,20 @@ module.exports = {
         { from: 'manifest.json', to: 'manifest.json' },
         { from: 'public/icons', to: 'icons', noErrorOnMissing: true },
         { from: 'src/offscreen/offscreen.html', to: 'offscreen.html' },
+        // Tesseract.js worker script (offscreen document에서 직접 로드)
+        {
+          from: 'node_modules/tesseract.js/dist/worker.min.js',
+          to: 'tesseract/worker.min.js',
+        },
+        // Tesseract.js-core WASM files (importScripts로 로드되므로 로컬 필수)
+        {
+          from: 'node_modules/tesseract.js-core/tesseract-core*.wasm.js',
+          to: 'tesseract/core/[name][ext]',
+        },
+        {
+          from: 'node_modules/tesseract.js-core/tesseract-core*.wasm',
+          to: 'tesseract/core/[name][ext]',
+        },
       ],
     }),
   ],
