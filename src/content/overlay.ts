@@ -2,6 +2,7 @@ import { CONFIG } from '../shared/config';
 import type { SubtitleEntry, Disposable } from '../shared/types';
 
 const OVERLAY_ID = 'yt-sub-translator-overlay';
+const CONTROL_ID = 'yt-sub-translator-control';
 
 /**
  * 번역 자막을 유튜브 비디오 위에 오버레이로 표시하는 모듈.
@@ -9,11 +10,15 @@ const OVERLAY_ID = 'yt-sub-translator-overlay';
  */
 export class SubtitleOverlay implements Disposable {
   private container: HTMLDivElement | null = null;
+  private controlBar: HTMLDivElement | null = null;
   private shadowRoot: ShadowRoot | null = null;
   private textEl: HTMLDivElement | null = null;
+  private selectRoiBtn: HTMLButtonElement | null = null;
+  private onSelectRoi: (() => void) | null = null;
 
   /** 오버레이 DOM을 비디오 플레이어 위에 생성 */
-  init(): void {
+  init(onSelectRoi?: () => void): void {
+    this.onSelectRoi = onSelectRoi ?? null;
     // 중복 생성 방지
     if (document.getElementById(OVERLAY_ID)) {
       console.warn(CONFIG.logPrefix, 'Overlay already exists');
@@ -76,6 +81,37 @@ export class SubtitleOverlay implements Disposable {
     player.style.position = 'relative';
     player.appendChild(this.container);
 
+    // 컨트롤 바 (ROI 선택 버튼 등)
+    this.controlBar = document.createElement('div');
+    this.controlBar.id = CONTROL_ID;
+    this.controlBar.style.cssText = `
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 10001;
+      display: flex;
+      gap: 6px;
+    `;
+
+    this.selectRoiBtn = document.createElement('button');
+    this.selectRoiBtn.textContent = 'ROI 선택';
+    this.selectRoiBtn.style.cssText = `
+      padding: 6px 12px;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #00ff88;
+      border: 1px solid #00ff88;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+    `;
+    this.selectRoiBtn.addEventListener('click', () => {
+      this.onSelectRoi?.();
+    });
+
+    this.controlBar.appendChild(this.selectRoiBtn);
+    player.appendChild(this.controlBar);
+
     console.log(CONFIG.logPrefix, 'Overlay initialized');
   }
 
@@ -97,11 +133,21 @@ export class SubtitleOverlay implements Disposable {
     }
   }
 
+  /** ROI 선택 완료 시 버튼 상태 업데이트 */
+  setRoiSelected(selected: boolean): void {
+    if (this.selectRoiBtn) {
+      this.selectRoiBtn.textContent = selected ? 'ROI 재선택' : 'ROI 선택';
+    }
+  }
+
   dispose(): void {
     this.container?.remove();
+    this.controlBar?.remove();
     this.container = null;
+    this.controlBar = null;
     this.shadowRoot = null;
     this.textEl = null;
+    this.selectRoiBtn = null;
     console.log(CONFIG.logPrefix, 'Overlay disposed');
   }
 

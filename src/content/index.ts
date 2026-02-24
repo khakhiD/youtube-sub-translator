@@ -1,22 +1,25 @@
 import { CONFIG } from '../shared/config';
-import type { AppState, SubtitleEntry } from '../shared/types';
+import type { AppState, Rect } from '../shared/types';
 import { SubtitleOverlay } from './overlay';
+import { RoiSelector } from './roi-selector';
 import '../styles/content.css';
 
 /**
  * Content Script 진입점.
  * 각 모듈을 초기화하고 파이프라인을 조율하는 역할.
  *
- * Step 1: 오버레이 초기화 + 데모 자막 표시
- * TODO: Step 2에서 ROI 선택, Step 3에서 캡처 파이프라인 연결
+ * Step 2: 오버레이 + ROI 선택 UI
+ * TODO: Step 3에서 캡처 파이프라인 연결
  */
 
 class SubtitleTranslatorApp {
   private overlay: SubtitleOverlay;
+  private roiSelector: RoiSelector;
   private state: AppState;
 
   constructor() {
     this.overlay = new SubtitleOverlay();
+    this.roiSelector = new RoiSelector();
     this.state = {
       isActive: false,
       roi: null,
@@ -31,13 +34,26 @@ class SubtitleTranslatorApp {
     // 유튜브는 SPA이므로 비디오 플레이어가 즉시 있지 않을 수 있음
     await this.waitForVideoPlayer();
 
-    this.overlay.init();
+    this.overlay.init(() => this.handleSelectRoi());
     this.state.isActive = true;
 
-    // TODO: 실제 파이프라인 연결 시 제거
-    this.showDemoSubtitle();
-
     console.log(CONFIG.logPrefix, 'App initialized successfully');
+  }
+
+  /** ROI 선택 버튼 클릭 핸들러 */
+  private handleSelectRoi(): void {
+    console.log(CONFIG.logPrefix, 'Entering ROI selection mode...');
+    this.roiSelector.enterSelectionMode((roi: Rect) => {
+      this.state.roi = roi;
+      this.overlay.setRoiSelected(true);
+      this.overlay.update({
+        originalText: '',
+        translatedText: `[ROI 선택됨] ${roi.width.toFixed(0)}x${roi.height.toFixed(0)} @ (${roi.x.toFixed(0)}, ${roi.y.toFixed(0)})`,
+        timestamp: Date.now(),
+      });
+      console.log(CONFIG.logPrefix, 'ROI saved to state:', roi);
+      // TODO: Step 3에서 이 ROI로 캡처 파이프라인 시작
+    });
   }
 
   /** 비디오 플레이어 DOM이 나타날 때까지 대기 */
@@ -67,21 +83,6 @@ class SubtitleTranslatorApp {
         resolve();
       }, 10_000);
     });
-  }
-
-  /**
-   * 데모 자막 표시 (Step 1 동작 확인용)
-   * TODO: Step 4 완료 후 제거 - 실제 OCR → 번역 파이프라인으로 교체
-   */
-  private showDemoSubtitle(): void {
-    const demo: SubtitleEntry = {
-      originalText: 'This is a demo subtitle from OCR',
-      translatedText: '[번역] OCR에서 추출한 데모 자막입니다',
-      timestamp: Date.now(),
-    };
-
-    this.overlay.update(demo);
-    console.log(CONFIG.logPrefix, 'Demo subtitle displayed');
   }
 }
 
