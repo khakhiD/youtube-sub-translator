@@ -6,7 +6,7 @@ const CONTROL_ID = 'yt-sub-translator-control';
 
 /**
  * 번역 자막을 유튜브 비디오 위에 오버레이로 표시하는 모듈.
- * Shadow DOM을 사용해 유튜브 페이지 스타일과 격리.
+ * Shadow DOM으로 유튜브 스타일과 격리. 드래그로 위치 이동 가능.
  */
 export class SubtitleOverlay implements Disposable {
   private container: HTMLDivElement | null = null;
@@ -18,29 +18,39 @@ export class SubtitleOverlay implements Disposable {
   private onSelectRoi: (() => void) | null = null;
   private onClearRoi: (() => void) | null = null;
 
+  // 드래그 상태
+  private isDragging = false;
+  private dragOffsetX = 0;
+  private dragOffsetY = 0;
+  private posX = 0; // 플레이어 중앙 기준 오프셋
+  private posY = 0;
+  private player: HTMLElement | null = null;
+
+  private boundDragMove = this.handleDragMove.bind(this);
+  private boundDragEnd = this.handleDragEnd.bind(this);
+
   /** 오버레이 DOM을 비디오 플레이어 위에 생성 */
   init(callbacks?: { onSelectRoi?: () => void; onClearRoi?: () => void }): void {
     this.onSelectRoi = callbacks?.onSelectRoi ?? null;
     this.onClearRoi = callbacks?.onClearRoi ?? null;
-    // 중복 생성 방지
+
     if (document.getElementById(OVERLAY_ID)) {
       console.warn(CONFIG.logPrefix, 'Overlay already exists');
       return;
     }
 
-    const player = this.findVideoPlayer();
-    if (!player) {
+    this.player = this.findVideoPlayer();
+    if (!this.player) {
       console.warn(CONFIG.logPrefix, 'Video player not found, retrying...');
       return;
     }
 
-    // 컨테이너 생성 (Shadow DOM으로 스타일 격리)
+    // 컨테이너 (Shadow DOM)
     this.container = document.createElement('div');
     this.container.id = OVERLAY_ID;
 
     this.shadowRoot = this.container.attachShadow({ mode: 'open' });
 
-    // Shadow DOM 내부 스타일
     const style = document.createElement('style');
     style.textContent = `
       :host {
@@ -68,6 +78,12 @@ export class SubtitleOverlay implements Disposable {
         border-radius: 4px;
         white-space: pre-wrap;
         word-break: keep-all;
+        pointer-events: auto;
+        cursor: grab;
+        user-select: none;
+      }
+      .subtitle-text:active {
+        cursor: grabbing;
       }
       .subtitle-text:empty {
         display: none;
@@ -77,14 +93,16 @@ export class SubtitleOverlay implements Disposable {
     this.textEl = document.createElement('div');
     this.textEl.className = 'subtitle-text';
 
+    // 드래그 이벤트
+    this.textEl.addEventListener('mousedown', (e) => this.handleDragStart(e));
+
     this.shadowRoot.appendChild(style);
     this.shadowRoot.appendChild(this.textEl);
 
-    // 비디오 플레이어는 position:relative이므로 absolute 배치 가능
-    player.style.position = 'relative';
-    player.appendChild(this.container);
+    this.player.style.position = 'relative';
+    this.player.appendChild(this.container);
 
-    // 컨트롤 바 (ROI 선택 버튼 등)
+    // 컨트롤 바
     this.controlBar = document.createElement('div');
     this.controlBar.id = CONTROL_ID;
     this.controlBar.style.cssText = `
@@ -108,9 +126,7 @@ export class SubtitleOverlay implements Disposable {
       cursor: pointer;
       font-family: Arial, sans-serif;
     `;
-    this.selectRoiBtn.addEventListener('click', () => {
-      this.onSelectRoi?.();
-    });
+    this.selectRoiBtn.addEventListener('click', () => this.onSelectRoi?.());
 
     this.clearRoiBtn = document.createElement('button');
     this.clearRoiBtn.textContent = 'ROI 초기화';
@@ -125,13 +141,11 @@ export class SubtitleOverlay implements Disposable {
       font-family: Arial, sans-serif;
       display: none;
     `;
-    this.clearRoiBtn.addEventListener('click', () => {
-      this.onClearRoi?.();
-    });
+    this.clearRoiBtn.addEventListener('click', () => this.onClearRoi?.());
 
     this.controlBar.appendChild(this.selectRoiBtn);
     this.controlBar.appendChild(this.clearRoiBtn);
-    player.appendChild(this.controlBar);
+    this.player.appendChild(this.controlBar);
 
     console.log(CONFIG.logPrefix, 'Overlay initialized');
   }
@@ -147,14 +161,12 @@ export class SubtitleOverlay implements Disposable {
     }
   }
 
-  /** 오버레이 표시/숨김 토글 */
   setVisible(visible: boolean): void {
     if (this.container) {
       this.container.style.display = visible ? 'block' : 'none';
     }
   }
 
-  /** ROI 선택 완료 시 버튼 상태 업데이트 */
   setRoiSelected(selected: boolean): void {
     if (this.selectRoiBtn) {
       this.selectRoiBtn.textContent = selected ? 'ROI 재선택' : 'ROI 선택';
@@ -165,6 +177,8 @@ export class SubtitleOverlay implements Disposable {
   }
 
   dispose(): void {
+    document.removeEventListener('mousemove', this.boundDragMove);
+    document.removeEventListener('mouseup', this.boundDragEnd);
     this.container?.remove();
     this.controlBar?.remove();
     this.container = null;
@@ -176,9 +190,47 @@ export class SubtitleOverlay implements Disposable {
     console.log(CONFIG.logPrefix, 'Overlay disposed');
   }
 
-  /** 유튜브 비디오 플레이어 요소 탐색 */
+  // --- 드래그 로직 ---
+
+  private handleDragStart(e: MouseEvent): void {
+    if (!this.container) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    this.isDragging = true;
+    const containerRect = this.container.getBoundingClientRect();
+    this.dragOffsetX = e.clientX - containerRect.left;
+    this.dragOffsetY = e.clientY - containerRect.top;
+
+    document.addEventListener('mousemove', this.boundDragMove);
+    document.addEventListener('mouseup', this.boundDragEnd);
+  }
+
+  private handleDragMove(e: MouseEvent): void {
+    if (!this.isDragging || !this.container || !this.player) return;
+    e.preventDefault();
+
+    const playerRect = this.player.getBoundingClientRect();
+    const newLeft = e.clientX - playerRect.left - this.dragOffsetX;
+    const newTop = e.clientY - playerRect.top - this.dragOffsetY;
+
+    // bottom/transform 기반 → top/left 기반으로 전환
+    this.container.style.bottom = 'auto';
+    this.container.style.transform = 'none';
+    this.container.style.left = `${newLeft}px`;
+    this.container.style.top = `${newTop}px`;
+
+    this.posX = newLeft;
+    this.posY = newTop;
+  }
+
+  private handleDragEnd(): void {
+    this.isDragging = false;
+    document.removeEventListener('mousemove', this.boundDragMove);
+    document.removeEventListener('mouseup', this.boundDragEnd);
+  }
+
   private findVideoPlayer(): HTMLElement | null {
-    // #movie_player는 유튜브의 비디오 플레이어 컨테이너
     return document.querySelector('#movie_player');
   }
 }

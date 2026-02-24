@@ -214,7 +214,7 @@ export class RoiSelector implements Disposable {
     document.removeEventListener('mouseup', this.boundMouseUp);
   }
 
-  /** 확정된 ROI를 점선 테두리로 플레이어 위에 표시 */
+  /** 확정된 ROI를 잠깐 표시 후 fade out */
   private showRoiIndicator(roi: Rect): void {
     if (!this.player) return;
 
@@ -225,11 +225,23 @@ export class RoiSelector implements Disposable {
       top: ${roi.y}px;
       width: ${roi.width}px;
       height: ${roi.height}px;
-      border: 2px dashed #00ff88;
+      border: 1px solid rgba(0, 255, 136, 0.6);
       background: transparent;
       pointer-events: none;
       z-index: 9998;
+      transition: opacity 0.8s ease-out;
     `;
     this.player.appendChild(this.roiBox);
+
+    // 1.5초 후 fade out, 완전히 사라지면 DOM에서 제거
+    setTimeout(() => {
+      if (this.roiBox) {
+        this.roiBox.style.opacity = '0';
+        setTimeout(() => {
+          this.roiBox?.remove();
+          this.roiBox = null;
+        }, 800);
+      }
+    }, 1500);
   }
 }
