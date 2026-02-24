@@ -2,6 +2,8 @@
 
 유튜브 리액션 영상 등에서 **하드코딩된 자막**(영상에 직접 박힌 자막)을 OCR로 읽어 한국어로 번역해주는 Chrome 확장 프로그램.
 
+[Changelog](CHANGELOG.md) · [Releases](https://github.com/khakhiD/youtube-sub-translator/releases) · [TODO](TODO.md)
+
 ## 주요 기능
 
 - **ROI 선택** — 비디오 플레이어 위에서 드래그로 자막 영역 지정
