@@ -1,0 +1,12 @@
+/*
+ * Content script 전역 스타일.
+ * 오버레이 핵심 스타일은 Shadow DOM 내부에 있으므로
+ * 여기에는 유튜브 페이지와 충돌하지 않는 최소한의 스타일만 둔다.
+ *
+ * NOTE: content.css는 manifest.json의 css 필드로 주입됨
+ */
+
+#yt-sub-translator-overlay {
+  /* Shadow DOM host의 외부 스타일 - 유튜브 z-index와 충돌 방지 */
+  z-index: 2147483647;
+}

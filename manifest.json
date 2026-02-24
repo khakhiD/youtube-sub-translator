@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Sub Translator",
+  "version": "0.1.0",
+  "description": "OCR-based subtitle translator overlay for YouTube reaction videos",
+  "permissions": [],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/watch*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
