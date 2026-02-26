@@ -1,6 +1,6 @@
 export const CONFIG = {
-  /** OCR 캡처 주기 (ms) - 약 1fps */
-  captureIntervalMs: 1000,
+  /** 프레임 캡처 주기 (ms) - frame diff로 변화 감지하므로 빈도를 높여도 OCR 비용 증가 없음 */
+  captureIntervalMs: 300,
 
   /** 오버레이 기본 위치 (화면 하단 중앙) */
   overlay: {

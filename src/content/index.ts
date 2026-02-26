@@ -5,6 +5,7 @@ import type { AppState, Rect } from '../shared/types';
 import { SubtitleOverlay } from './overlay';
 import { RoiSelector } from './roi-selector';
 import { FrameCapture } from './capture';
+import { FrameDiff } from './frame-diff';
 import { OcrEngine } from './ocr';
 import { translate } from './translator';
 import { isNewSubtitle, resetDedup } from './dedup';
@@ -12,14 +13,15 @@ import '../styles/content.css';
 
 /**
  * Content Script 진입점.
- * 파이프라인: 캡처 → OCR → 중복제거 → 번역 → 오버레이
- * 설정은 chrome.storage에서 로드하고 변경 시 실시간 반영.
+ * 파이프라인: 캡처 → 프레임 변화 감지 → OCR → 중복제거 → 번역 → 오버레이
+ * 프레임 변화가 없으면 OCR을 스킵하여 리소스 절약.
  */
 
 class SubtitleTranslatorApp {
   private overlay: SubtitleOverlay;
   private roiSelector: RoiSelector;
   private capture: FrameCapture;
+  private frameDiff: FrameDiff;
   private ocr: OcrEngine;
   private state: AppState;
   private settings!: Settings;
@@ -28,6 +30,7 @@ class SubtitleTranslatorApp {
     this.overlay = new SubtitleOverlay();
     this.roiSelector = new RoiSelector();
     this.capture = new FrameCapture();
+    this.frameDiff = new FrameDiff();
     this.ocr = new OcrEngine();
     this.state = {
       isActive: false,
@@ -105,12 +108,15 @@ class SubtitleTranslatorApp {
     this.roiSelector.clearExistingRoi();
     this.overlay.setRoiSelected(false);
     this.overlay.update(null);
+    this.frameDiff.reset();
     resetDedup();
     console.log(CONFIG.logPrefix, 'ROI cleared, capture stopped');
   }
 
-  /** ROI 기반 주기적 캡처 → OCR → 중복제거 → 번역 → 오버레이 */
+  /** 캡처 → 프레임 변화 감지 → OCR → 중복제거 → 번역 → 오버레이 */
   private startCapture(roi: Rect): void {
+    this.frameDiff.reset();
+
     this.overlay.update({
       originalText: '',
       translatedText: '[OCR 초기화 중...]',
@@ -118,6 +124,11 @@ class SubtitleTranslatorApp {
     });
 
     this.capture.start(roi, (imageData: ImageData) => {
+      const result = this.frameDiff.analyze(imageData);
+
+      // 변화 없음 또는 자막 없음 → OCR 스킵
+      if (result !== 'changed') return;
+
       this.ocr.recognize(imageData, async (text: string) => {
         if (!isNewSubtitle(text)) return;
 
@@ -129,7 +140,6 @@ class SubtitleTranslatorApp {
             timestamp: Date.now(),
           });
         } else {
-          // 번역 비활성화 시 원문만 표시
           this.overlay.update({
             originalText: '',
             translatedText: text,
@@ -137,7 +147,7 @@ class SubtitleTranslatorApp {
           });
         }
       });
-    }, this.settings.captureIntervalMs);
+    });
   }
 
   private waitForVideoPlayer(): Promise<void> {
